@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Classificador de Emails com IA</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1> Classificador de Emails com IGOR</h1>
+        <p>Cole o texto do email OU faça upload de um arquivo .txt ou .pdf</p>
+        
+        <div class="tabs">
+            <button class="tab-button active" onclick="showTab('texto')">Colar Email</button>
+            <button class="tab-button" onclick="showTab('arquivo')">📁 Upload</button>
+        </div>
+
+        <div id="tab-texto" class="tab-content active">
+            <form id="emailForm">
+                <textarea 
+                    id="textoEmail" 
+                    name="texto" 
+                    placeholder="Cole o texto do email aqui..."
+                    rows="10"
+                ></textarea>
+                
+                <button type="submit">Classificar Email</button>
+            </form>
+        </div>
+
+        <div id="tab-arquivo" class="tab-content">
+            <form id="arquivoForm" enctype="multipart/form-data">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📄</div>
+                    <p>Arraste um arquivo aqui ou clique para selecionar</p>
+                    <p class="upload-hint">Aceita arquivos .txt e .pdf (máx. 10MB)</p>
+                    <input 
+                        type="file" 
+                        id="arquivo" 
+                        name="arquivo" 
+                        accept=".txt,.pdf"
+                        hidden
+                    >
+                </div>
+                <div id="fileName" class="file-name"></div>
+                <button type="submit" id="btnUpload" style="display: none;">Classificar Arquivo</button>
+            </form>
+        </div>
+
+        <div id="resultado" style="display: none;">
+            <h2> Resultado da Classificação</h2>
+            <div class="resultado-item">
+                <strong>Categoria:</strong> 
+                <span id="categoria" class="badge"></span>
+            </div>
+            <div class="resultado-item">
+                <strong>Resposta Sugerida:</strong>
+                <div class="resposta-container">
+                    <p id="resposta"></p>
+                    <button onclick="copiarResposta()" class="btn-copiar">
+                         Copiar Resposta
+                    </button>
+                </div>
+            </div>
+            <div class="resultado-item stats">
+                <small id="stats"></small>
+            </div>
+            <button onclick="novaAnalise()" class="btn-nova-analise">
+                🔄 Nova Análise
+            </button>
+        </div>
+
+        <div id="loading" style="display: none;">
+            <div class="spinner"></div>
+            <p> Processando com IA...</p>
+            <small>Analisando conteúdo e gerando resposta personalizada...</small>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            document.getElementById('tab-' + tabName).classList.add('active');
+            event.target.classList.add('active');
+            document.getElementById('resultado').style.display = 'none';
+        }
+
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('arquivo');
+        const fileNameDiv = document.getElementById('fileName');
+        const btnUpload = document.getElementById('btnUpload');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#667eea';
+            uploadArea.style.background = '#f0f0ff';
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.style.borderColor = '#ddd';
+            uploadArea.style.background = 'white';
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#ddd';
+            uploadArea.style.background = 'white';
+            
+            const file = e.dataTransfer.files[0];
+            handleFile(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            handleFile(file);
+        });
+
+        function handleFile(file) {
+            if (file) {
+                const validTypes = ['text/plain', 'application/pdf'];
+                if (!validTypes.includes(file.type)) {
+                    mostrarToast(' Por favor, selecione apenas arquivos .txt ou .pdf', 'erro');
+                    return;
+                }
+                
+                if (file.size > 10 * 1024 * 1024) {
+                    mostrarToast(' Arquivo muito grande! Máximo 10MB', 'erro');
+                    return;
+                }
+                
+                fileNameDiv.textContent = ` ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+                fileNameDiv.style.display = 'block';
+                btnUpload.style.display = 'block';
+            }
+        }
+
+        document.getElementById('emailForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const texto = document.getElementById('textoEmail').value.trim();
+            
+            if (!texto) {
+                mostrarToast(' Por favor, cole o texto do email', 'erro');
+                return;
+            }
+            
+            await classificarEmail({ texto: texto });
+        });
+
+        document.getElementById('arquivoForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const arquivo = document.getElementById('arquivo').files[0];
+            
+            if (!arquivo) {
+                mostrarToast('Por favor, selecione um arquivo', 'erro');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('arquivo', arquivo);
+            
+            await classificarEmail(formData, true);
+        });
+
+        async function classificarEmail(data, isFile = false) {
+            const loadingDiv = document.getElementById('loading');
+            const resultadoDiv = document.getElementById('resultado');
+            
+            loadingDiv.style.display = 'block';
+            resultadoDiv.style.display = 'none';
+            
+            try {
+                let response;
+                
+                if (isFile) {
+                    response = await fetch('/classificar', {
+                        method: 'POST',
+                        body: data
+                    });
+                } else {
+                    response = await fetch('/classificar', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: `texto=${encodeURIComponent(data.texto)}`
+                    });
+                }
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('categoria').textContent = result.categoria;
+                    document.getElementById('categoria').className = 'badge ' + 
+                        (result.categoria === 'Produtivo' ? 'badge-produtivo' : 'badge-improdutivo');
+                    document.getElementById('resposta').textContent = result.resposta;
+                    document.getElementById('stats').textContent = 
+                        `📊 ${result.caracteres} caracteres · ${result.palavras} palavras · ${result.metodo}`;
+                    
+                    resultadoDiv.style.display = 'block';
+                    resultadoDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    
+                    mostrarToast('Email classificado com sucesso!', 'sucesso');
+                } else {
+                    mostrarToast('Erro: ' + (result.erro || 'Erro desconhecido'), 'erro');
+                }
+                
+            } catch (error) {
+                mostrarToast(' Erro ao processar: ' + error.message, 'erro');
+            } finally {
+                loadingDiv.style.display = 'none';
+            }
+        }
+
+        function copiarResposta() {
+            const resposta = document.getElementById('resposta').textContent;
+            
+            navigator.clipboard.writeText(resposta).then(() => {
+                mostrarToast('✅ Resposta copiada! Cole no seu cliente de email.', 'sucesso');
+                
+                const btn = event.target;
+                const textoOriginal = btn.textContent;
+                btn.textContent = '✓ Copiado!';
+                btn.style.background = '#4CAF50';
+                
+                setTimeout(() => {
+                    btn.textContent = textoOriginal;
+                    btn.style.background = '';
+                }, 2000);
+            }).catch(err => {
+                mostrarToast('❌ Erro ao copiar. Selecione e copie manualmente.', 'erro');
+            });
+        }
+
+        function mostrarToast(mensagem, tipo = 'info') {
+            const toast = document.getElementById('toast');
+            toast.textContent = mensagem;
+            toast.className = `toast toast-${tipo} show`;
+            
+            setTimeout(() => {
+                toast.className = 'toast';
+            }, 3000);
+        }
+
+        function novaAnalise() {
+            document.getElementById('resultado').style.display = 'none';
+            document.getElementById('textoEmail').value = '';
+            document.getElementById('textoEmail').focus();
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                const textoEmail = document.getElementById('textoEmail');
+                if (textoEmail.value.trim()) {
+                    document.getElementById('emailForm').dispatchEvent(new Event('submit'));
+                }
+            }
+        });
+    </script>
+</body>
+</html>

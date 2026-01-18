@@ -1,0 +1,38 @@
+cat > .gitignore << 'EOF'
+# Segredos e variáveis de ambiente
+.env
+
+# Ambiente virtual Python
+venv/
+env/
+ENV/
+
+# Python compilado
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+__pycache__
+
+# Uploads de usuários
+uploads/*
+!uploads/.gitkeep
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Distribuição Python
+*.egg-info/
+dist/
+build/
+EOF
